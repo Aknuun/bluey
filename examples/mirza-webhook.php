@@ -3,10 +3,10 @@ declare(strict_types=1);
 
 /**
  * Skeleton webhook for Mirza panel (botmirzapanel).
- * Place it next to the panel, e.g. /payment/receiptd/callback.php.
+ * Place it next to the panel, e.g. /payment/bluey/callback.php.
  *
  * Configure the panel to send callback_url to this file's public URL.
- * Set WEBHOOK_SECRET in the PHP environment (same value as receiptd).
+ * Set WEBHOOK_SECRET in the PHP environment (same value as bluey).
  */
 
 $secret = getenv('WEBHOOK_SECRET') ?: '';

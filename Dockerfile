@@ -4,7 +4,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/receiptd ./cmd/receiptd
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/bluey ./cmd/bluey
 
 FROM debian:bookworm-slim
 
@@ -13,9 +13,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 ENV BLUBANK_CHROME_PATH=/usr/bin/chromium
-COPY --from=build /out/receiptd /usr/local/bin/receiptd
+COPY --from=build /out/bluey /usr/local/bin/bluey
 
 WORKDIR /data
 VOLUME ["/data"]
 EXPOSE 8080
-ENTRYPOINT ["/usr/local/bin/receiptd"]
+ENTRYPOINT ["/usr/local/bin/bluey"]

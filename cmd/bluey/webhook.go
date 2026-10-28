@@ -173,7 +173,7 @@ func (s *Service) deliver(ctx context.Context, d WebhookDelivery) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "receiptd/1")
+	req.Header.Set("User-Agent", "bluey/1")
 	req.Header.Set("X-Receipt-Delivery", d.ID)
 	if s.cfg.WebhookSecret != "" {
 		req.Header.Set("X-Receipt-Signature", signWebhook(s.cfg.WebhookSecret, []byte(d.Payload)))

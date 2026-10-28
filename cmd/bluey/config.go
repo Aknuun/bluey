@@ -31,7 +31,7 @@ type Config struct {
 func loadConfig() (Config, error) {
 	c := Config{
 		ListenAddr:           env("LISTEN_ADDR", ":8080"),
-		DBPath:               env("DB_PATH", "./receiptd.db"),
+		DBPath:               env("DB_PATH", "./bluey.db"),
 		APIKey:               os.Getenv("API_KEY"),
 		WebhookSecret:        os.Getenv("WEBHOOK_SECRET"),
 		CardNumber:           os.Getenv("CARD_NUMBER"),

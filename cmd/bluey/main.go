@@ -48,7 +48,7 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("receiptd listening on %s (db=%s, blubank=%v)", cfg.ListenAddr, cfg.DBPath, cfg.BluBankEnabled)
+		log.Printf("bluey listening on %s (db=%s, blubank=%v)", cfg.ListenAddr, cfg.DBPath, cfg.BluBankEnabled)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("http: %v", err)
 		}

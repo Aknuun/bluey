@@ -1,4 +1,4 @@
-# receiptd
+# bluey
 
 تایید خودکار واریز کارت‌به‌کارت با **بلوبانک**، به‌همراه یک API ساده برای اتصال به ربات تلگرام، فروشگاه، سایت یا هر اپ دیگری.
 
@@ -14,7 +14,7 @@
 ربات / سایت / اپ
       │  POST /v1/payments  (مبلغ + callback)
       ▼
-   receiptd ──────────────►  مبلغ یکتا + شماره کارت
+   bluey ──────────────►  مبلغ یکتا + شماره کارت
       │                           │
       │                     مشتری کارت‌به‌کارت می‌کند
       │                           │
@@ -48,8 +48,8 @@
 ## راه‌اندازی سریع
 
 ```bash
-git clone <repo-url> receiptd
-cd receiptd
+git clone <repo-url> bluey
+cd bluey
 
 cp .env.example .env
 # .env را ویرایش کنید: API_KEY، CARD_NUMBER، نام کاربری/رمز بلوبانک
@@ -83,7 +83,7 @@ curl -s -X POST http://localhost:8080/v1/blubank/otp \
 - کد OTP معمولاً کمتر از دو دقیقه اعتبار دارد.
 - اگر کد منقضی شد، سرویس را ری‌استارت کنید تا کد تازه بفرستد:
   ```bash
-  docker compose restart receiptd
+  docker compose restart bluey
   ```
 - پروفایل مرورگر در `./data/blubank-profile` ذخیره می‌شود. این پوشه را پاک نکنید.
 - پس از ورود، تا زمانی که مرورگر/کانتینر زنده است، تمدید نشست با رمز انجام می‌شود و OTP دوباره لازم نیست. **ری‌استارت کانتینر ممکن است OTP جدید بخواهد** (محدودیت نسخه وب بلوبانک).
@@ -258,7 +258,7 @@ X-Receipt-Signature: sha256=<hex hmac>
 
 ```bash
 CGO_ENABLED=0 go test ./...
-CGO_ENABLED=0 go run ./cmd/receiptd
+CGO_ENABLED=0 go run ./cmd/bluey
 ```
 
 متغیرهای محیطی در `.env.example` آمده‌اند.

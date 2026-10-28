@@ -1,4 +1,4 @@
-module receiptd
+module bluey
 
 go 1.26.0
 
