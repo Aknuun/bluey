@@ -1,4 +1,4 @@
-# bluey
+# Bluey
 
 تایید خودکار واریز کارت‌به‌کارت با **بلوبانک**، به‌همراه یک API ساده برای اتصال به ربات تلگرام، فروشگاه، سایت یا هر اپ دیگری.
 
@@ -48,7 +48,7 @@
 ## راه‌اندازی سریع
 
 ```bash
-git clone <repo-url> bluey
+git clone https://github.com/Aknuun/bluey.git
 cd bluey
 
 cp .env.example .env
