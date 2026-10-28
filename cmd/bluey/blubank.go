@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,6 +35,74 @@ const standaloneJS = `(() => {
 })();`
 
 var errLoginRequired = errors.New("login required")
+
+// sessionState is the part of BluBank's web session that lives in sessionStorage.
+// The device key pair stays in the Chrome profile's IndexedDB.
+type sessionState struct {
+	S5 string `json:"s5"`
+	K9 string `json:"k9"`
+	K3 string `json:"k3"`
+}
+
+func (b *BluBank) loadSessionState() *sessionState {
+	raw, err := os.ReadFile(b.cfg.BluBankStatePath)
+	if err != nil {
+		return nil
+	}
+	var st sessionState
+	if json.Unmarshal(raw, &st) != nil || (st.S5 == "" && st.K9 == "" && st.K3 == "") {
+		return nil
+	}
+	return &st
+}
+
+func sessionScript(st *sessionState) string {
+	payload, _ := json.Marshal(map[string]string{"%S5": st.S5, "%9": st.K9, "%3": st.K3})
+	return fmt.Sprintf(`(() => {
+  try {
+    const v = %s;
+    for (const k of Object.keys(v)) if (v[k]) sessionStorage.setItem(k, v[k]);
+  } catch (e) {}
+})();`, payload)
+}
+
+func (b *BluBank) saveSession(ctx context.Context) {
+	var raw string
+	js := `(() => { try { return JSON.stringify({s5:sessionStorage.getItem('%S5')||'',k9:sessionStorage.getItem('%9')||'',k3:sessionStorage.getItem('%3')||''}); } catch (e) { return ''; } })()`
+	if err := runWithTimeout(ctx, 5*time.Second, chromedp.Evaluate(js, &raw)); err != nil || raw == "" {
+		return
+	}
+	var st sessionState
+	if json.Unmarshal([]byte(raw), &st) != nil || (st.S5 == "" && st.K9 == "" && st.K3 == "") {
+		return
+	}
+	dir := filepath.Dir(b.cfg.BluBankStatePath)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		log.Printf("blubank: save session: %v", err)
+		return
+	}
+	tmp, err := os.CreateTemp(dir, ".session-*.tmp")
+	if err != nil {
+		log.Printf("blubank: save session: %v", err)
+		return
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return
+	}
+	if _, err := tmp.WriteString(raw); err != nil {
+		tmp.Close()
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		return
+	}
+	if err := os.Rename(name, b.cfg.BluBankStatePath); err != nil {
+		log.Printf("blubank: save session: %v", err)
+	}
+}
 
 type BluBank struct {
 	cfg Config
@@ -109,6 +180,7 @@ func (b *BluBank) run(ctx context.Context) error {
 		time.Sleep(5 * time.Second)
 	}
 	b.setState("ready", "")
+	b.saveSession(browserCtx)
 
 	txs, err := b.readTransactions(browserCtx)
 	if err != nil {
@@ -164,6 +236,7 @@ func (b *BluBank) pollOnce(ctx context.Context, browserCtx context.Context) erro
 		return err
 	}
 	b.process(ctx, txs)
+	b.saveSession(browserCtx)
 	b.mu.Lock()
 	b.lastPoll = time.Now()
 	b.mu.Unlock()
@@ -225,13 +298,22 @@ func (b *BluBank) startBrowser(ctx context.Context) (context.Context, context.Ca
 		allocCancel()
 		return nil, nil, fmt.Errorf("start chrome: %w", err)
 	}
+	scripts := []string{standaloneJS}
+	if st := b.loadSessionState(); st != nil {
+		scripts = append(scripts, sessionScript(st))
+		log.Printf("blubank: restoring saved web session")
+	}
 	if err := chromedp.Run(browserCtx, chromedp.ActionFunc(func(ctx context.Context) error {
-		_, err := page.AddScriptToEvaluateOnNewDocument(standaloneJS).Do(ctx)
-		return err
+		for _, script := range scripts {
+			if _, err := page.AddScriptToEvaluateOnNewDocument(script).Do(ctx); err != nil {
+				return err
+			}
+		}
+		return nil
 	})); err != nil {
 		browserCancel()
 		allocCancel()
-		return nil, nil, fmt.Errorf("inject standalone shim: %w", err)
+		return nil, nil, fmt.Errorf("inject browser scripts: %w", err)
 	}
 	return browserCtx, func() {
 		browserCancel()
@@ -244,6 +326,7 @@ func (b *BluBank) login(ctx context.Context) error {
 	u := b.location(ctx)
 	if strings.Contains(u, "/payment/hub") || strings.Contains(u, "/dashboard") {
 		b.setState("ready", "")
+		b.saveSession(ctx)
 		return nil
 	}
 

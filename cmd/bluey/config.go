@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ type Config struct {
 	BluBankChromePath   string
 	BluBankProxy        string
 	BluBankPollInterval time.Duration
+	BluBankStatePath    string
 }
 
 func loadConfig() (Config, error) {
@@ -46,6 +48,10 @@ func loadConfig() (Config, error) {
 		BluBankChromePath:    os.Getenv("BLUBANK_CHROME_PATH"),
 		BluBankProxy:         os.Getenv("BLUBANK_PROXY"),
 		BluBankPollInterval:  envDuration("BLUBANK_POLL_INTERVAL", 15*time.Second),
+		BluBankStatePath:     os.Getenv("BLUBANK_STATE_PATH"),
+	}
+	if c.BluBankStatePath == "" {
+		c.BluBankStatePath = filepath.Join(c.BluBankProfileDir, "session.json")
 	}
 
 	if c.APIKey == "" {
