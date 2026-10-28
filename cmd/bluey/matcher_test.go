@@ -21,12 +21,17 @@ const dashboardFixture = `۱۱۹٬۵۹۹٬۸۸۳ ریال
 خرید اینترنتی
 سه‌شنبه، ۵ آبان ۱۴۰۵ ۲۱:۱۰
 
-۲۵۰٬۰۰۰ ریال`
+۲۵۰٬۰۰۰ ریال
+
+شارژ حساب
+سه‌شنبه، ۵ آبان ۱۴۰۵ ۲۲:۵۰
+
+۱۰۷٬۱۷۰ ریال`
 
 func TestParseTransactions(t *testing.T) {
 	txs := parseTransactions(dashboardFixture)
-	if len(txs) != 3 {
-		t.Fatalf("got %d transactions, want 3: %+v", len(txs), txs)
+	if len(txs) != 4 {
+		t.Fatalf("got %d transactions, want 4: %+v", len(txs), txs)
 	}
 	if !txs[0].Incoming || txs[0].AmountRial != 6200000 || txs[0].Description != "دریافت از سپرده" {
 		t.Fatalf("first tx: %+v", txs[0])
@@ -36,6 +41,9 @@ func TestParseTransactions(t *testing.T) {
 	}
 	if txs[2].Incoming || txs[2].AmountRial != 250000 {
 		t.Fatalf("third tx: %+v", txs[2])
+	}
+	if !txs[3].Incoming || txs[3].AmountRial != 107170 || txs[3].Description != "شارژ حساب" {
+		t.Fatalf("fourth tx: %+v", txs[3])
 	}
 	for _, tx := range txs {
 		if tx.Key == "" {
@@ -66,8 +74,8 @@ func TestParseDuplicateKeys(t *testing.T) {
 func TestParseAmount(t *testing.T) {
 	cases := map[string]int64{
 		"۶٬۲۰۰٬۰۰۰": 6200000,
-		"1200":     1200,
-		"۱,۲۳۴":    1234,
+		"1200":      1200,
+		"۱,۲۳۴":     1234,
 	}
 	for in, want := range cases {
 		if got := parseAmount(in); got != want {

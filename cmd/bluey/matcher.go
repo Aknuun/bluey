@@ -83,7 +83,7 @@ func parseAmount(s string) int64 {
 }
 
 func isIncoming(desc string) bool {
-	return strings.HasPrefix(desc, "دریافت") || strings.Contains(desc, "واریز")
+	return strings.HasPrefix(desc, "دریافت") || strings.Contains(desc, "واریز") || strings.Contains(desc, "شارژ حساب")
 }
 
 func sha1Hex(s string) string {
