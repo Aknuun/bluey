@@ -1,4 +1,4 @@
-module bluey
+module github.com/Aknuun/bluey
 
 go 1.26.0
 
