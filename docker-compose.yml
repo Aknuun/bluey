@@ -9,3 +9,16 @@ services:
     volumes:
       - ./data:/data
     shm_size: "1gb"
+
+  bot:
+    build: .
+    restart: unless-stopped
+    command: ["/usr/local/bin/blueybot"]
+    env_file:
+      - .env
+    environment:
+      BLUEY_URL: http://bluey:8080
+    volumes:
+      - ./data:/data
+    depends_on:
+      - bluey
