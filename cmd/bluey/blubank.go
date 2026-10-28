@@ -57,11 +57,17 @@ func (b *BluBank) loadSessionState() *sessionState {
 }
 
 func sessionScript(st *sessionState) string {
-	payload, _ := json.Marshal(map[string]string{"%S5": st.S5, "%9": st.K9, "%3": st.K3})
+	// %S5 is intentionally not restored: a stale token makes the app believe it
+	// is logged in and it never refreshes. Restore only the device key so the
+	// password login can run without a new OTP.
+	payload, _ := json.Marshal(map[string]string{"%9": st.K9, "%3": st.K3})
 	return fmt.Sprintf(`(() => {
   try {
+    if (sessionStorage.getItem('__bluey_boot')) return;
+    sessionStorage.removeItem('%%S5');
     const v = %s;
     for (const k of Object.keys(v)) if (v[k]) sessionStorage.setItem(k, v[k]);
+    sessionStorage.setItem('__bluey_boot', '1');
   } catch (e) {}
 })();`, payload)
 }
@@ -168,16 +174,28 @@ func (b *BluBank) run(ctx context.Context) error {
 	if err := runWithTimeout(browserCtx, 30*time.Second, chromedp.Navigate(b.cfg.BluBankBaseURL+"/dashboard")); err != nil {
 		return err
 	}
-	time.Sleep(6 * time.Second)
+	time.Sleep(8 * time.Second)
 
 	if u := b.location(browserCtx); !strings.Contains(u, "/dashboard") {
-		if err := b.login(browserCtx); err != nil {
+		if err := b.login(browserCtx, false); err != nil {
 			return err
 		}
 		if err := runWithTimeout(browserCtx, 30*time.Second, chromedp.Navigate(b.cfg.BluBankBaseURL+"/dashboard")); err != nil {
 			return err
 		}
 		time.Sleep(5 * time.Second)
+	}
+	b.dismissNotifications(browserCtx)
+	if b.sessionBroken(browserCtx) {
+		log.Printf("blubank: dashboard session invalid, re-authenticating")
+		if err := b.login(browserCtx, true); err != nil {
+			return err
+		}
+		if err := runWithTimeout(browserCtx, 30*time.Second, chromedp.Navigate(b.cfg.BluBankBaseURL+"/dashboard")); err != nil {
+			return err
+		}
+		time.Sleep(8 * time.Second)
+		b.dismissNotifications(browserCtx)
 	}
 	b.setState("ready", "")
 	b.saveSession(browserCtx)
@@ -211,7 +229,7 @@ func (b *BluBank) run(ctx context.Context) error {
 		err := b.pollOnce(ctx, browserCtx)
 		if errors.Is(err, errLoginRequired) {
 			b.setState("logging_in", "")
-			if e := b.login(browserCtx); e != nil {
+			if e := b.login(browserCtx, true); e != nil {
 				return e
 			}
 			continue
@@ -223,12 +241,23 @@ func (b *BluBank) run(ctx context.Context) error {
 }
 
 func (b *BluBank) pollOnce(ctx context.Context, browserCtx context.Context) error {
-	if err := runWithTimeout(browserCtx, 30*time.Second, chromedp.Navigate(b.cfg.BluBankBaseURL+"/dashboard")); err != nil {
+	// A same-URL Navigate does not refresh the SPA after a token refresh; the
+	// dashboard stays on its "تلاش دوباره" error card. Reload forces a data fetch.
+	if strings.Contains(b.location(browserCtx), "/dashboard") {
+		if err := runWithTimeout(browserCtx, 30*time.Second, chromedp.Reload()); err != nil {
+			return err
+		}
+	} else if err := runWithTimeout(browserCtx, 30*time.Second, chromedp.Navigate(b.cfg.BluBankBaseURL+"/dashboard")); err != nil {
 		return err
 	}
-	time.Sleep(4 * time.Second)
+	time.Sleep(8 * time.Second)
+	b.dismissNotifications(browserCtx)
+	time.Sleep(time.Second)
 	u := b.location(browserCtx)
 	if strings.Contains(u, "device-verify") || strings.Contains(u, "/login") || strings.Contains(u, "/relogin") {
+		return errLoginRequired
+	}
+	if b.sessionBroken(browserCtx) {
 		return errLoginRequired
 	}
 	txs, err := b.readTransactions(browserCtx)
@@ -321,35 +350,59 @@ func (b *BluBank) startBrowser(ctx context.Context) (context.Context, context.Ca
 	}, nil
 }
 
-func (b *BluBank) login(ctx context.Context) error {
+func (b *BluBank) login(ctx context.Context, force bool) error {
 	b.setState("logging_in", "")
 	u := b.location(ctx)
-	if strings.Contains(u, "/payment/hub") || strings.Contains(u, "/dashboard") {
+	if !force && (strings.Contains(u, "/payment/hub") || strings.Contains(u, "/dashboard")) {
 		b.setState("ready", "")
 		b.saveSession(ctx)
 		return nil
+	}
+	if force {
+		// A stale %S5 makes /login redirect back to the broken dashboard.
+		_ = runWithTimeout(ctx, 5*time.Second, chromedp.Evaluate(`sessionStorage.removeItem('%S5')`, nil))
 	}
 
 	if err := runWithTimeout(ctx, 30*time.Second, chromedp.Navigate(b.cfg.BluBankBaseURL+"/login")); err != nil {
 		return err
 	}
 	time.Sleep(3 * time.Second)
+	if u := b.location(ctx); strings.Contains(u, "/dashboard") || strings.Contains(u, "/payment/hub") {
+		b.dismissNotifications(ctx)
+		b.setState("ready", "")
+		b.saveSession(ctx)
+		return nil
+	}
 	b.clickText(ctx, "حساب بلو دارم")
 	time.Sleep(time.Second)
 
-	if err := runWithTimeout(ctx, 30*time.Second,
+	if err := runWithTimeout(ctx, 20*time.Second,
 		chromedp.WaitVisible(`input[placeholder="نام کاربری"]`, chromedp.ByQuery)); err != nil {
 		return fmt.Errorf("login form not found: %w", err)
 	}
-	if err := runWithTimeout(ctx, 20*time.Second,
-		chromedp.Click(`input[placeholder="نام کاربری"]`, chromedp.ByQuery),
-		chromedp.SendKeys(`input[placeholder="نام کاربری"]`, b.cfg.BluBankUsername, chromedp.ByQuery),
-		chromedp.Click(`input[placeholder="رمز عبور"]`, chromedp.ByQuery),
-		chromedp.SendKeys(`input[placeholder="رمز عبور"]`, b.cfg.BluBankPassword, chromedp.ByQuery),
-	); err != nil {
+	// Fill via the native setter: SendKeys appends to values the app may have
+	// prefilled from the saved profile, which makes the username invalid.
+	js := fmt.Sprintf(`(() => {
+		const set = (sel, val) => {
+			const el = document.querySelector(sel);
+			if (!el) return false;
+			el.focus();
+			const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+			setter.call(el, val);
+			el.dispatchEvent(new Event('input', { bubbles: true }));
+			el.dispatchEvent(new Event('change', { bubbles: true }));
+			return true;
+		};
+		return set('input[placeholder="نام کاربری"]', %s) && set('input[placeholder="رمز عبور"]', %s);
+	})()`, strconv.Quote(b.cfg.BluBankUsername), strconv.Quote(b.cfg.BluBankPassword))
+	var filled bool
+	if err := runWithTimeout(ctx, 10*time.Second, chromedp.Evaluate(js, &filled)); err != nil {
 		return err
 	}
-	time.Sleep(500 * time.Millisecond)
+	if !filled {
+		return fmt.Errorf("login inputs not found")
+	}
+	time.Sleep(700 * time.Millisecond)
 	if !b.clickText(ctx, "ورود به بلو") {
 		return fmt.Errorf("login button not found")
 	}
@@ -371,7 +424,9 @@ func (b *BluBank) login(ctx context.Context) error {
 		_ = runWithTimeout(ctx, 5*time.Second, chromedp.Text("body", &text, chromedp.ByQuery))
 		return fmt.Errorf("login failed: %s", truncate(strings.TrimSpace(text), 300))
 	}
+	b.dismissNotifications(ctx)
 	b.setState("ready", "")
+	b.saveSession(ctx)
 	return nil
 }
 
@@ -382,6 +437,7 @@ func (b *BluBank) waitOTP(ctx context.Context) error {
 		case req := <-b.otpCh:
 			err := b.fillOTP(ctx, req.code)
 			if err == nil {
+				b.saveSession(ctx)
 				b.setState("ready", "")
 				req.resp <- nil
 				return nil
@@ -506,6 +562,21 @@ func (b *BluBank) waitURL(ctx context.Context, timeout time.Duration, ok func(st
 		}
 	}
 	return b.location(ctx), fmt.Errorf("timeout waiting for navigation")
+}
+
+func (b *BluBank) dismissNotifications(ctx context.Context) {
+	b.clickText(ctx, "الان نه!")
+}
+
+func (b *BluBank) sessionBroken(ctx context.Context) bool {
+	var text string
+	if err := runWithTimeout(ctx, 5*time.Second, chromedp.Text("body", &text, chromedp.ByQuery)); err != nil {
+		return false
+	}
+	return strings.Contains(text, "اطلاعات دریافت نشد") ||
+		strings.Contains(text, "تلاش دوباره") ||
+		strings.Contains(text, "نشست شما منقضی شده") ||
+		strings.Contains(text, "ورود به بلو")
 }
 
 func (b *BluBank) clickText(ctx context.Context, text string) bool {

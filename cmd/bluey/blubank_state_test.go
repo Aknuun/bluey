@@ -26,10 +26,13 @@ func TestLoadSessionState(t *testing.T) {
 	}
 
 	script := sessionScript(got)
-	for _, part := range []string{"%S5", "%9", "%3", `token\"x`} {
+	for _, part := range []string{"%S5", "%9", "%3", "kid", "pub"} {
 		if !strings.Contains(script, part) {
 			t.Fatalf("script missing %q: %s", part, script)
 		}
+	}
+	if strings.Contains(script, `token\"x`) {
+		t.Fatalf("stale auth token must not be restored: %s", script)
 	}
 }
 
